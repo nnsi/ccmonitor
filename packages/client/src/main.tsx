@@ -53,6 +53,10 @@ function App() {
     send({ type: 'unsubscribe', sessionId });
   }, [send]);
 
+  const handleResize = useCallback((sessionId: string, cols: number, rows: number) => {
+    send({ type: 'resize', sessionId, cols, rows });
+  }, [send]);
+
   const handleCreate = useCallback((cwd: string) => {
     createSession.mutate(cwd);
   }, [createSession]);
@@ -101,6 +105,7 @@ function App() {
             onDelete={handleDelete}
             onSubscribe={handleSubscribe}
             onUnsubscribe={handleUnsubscribe}
+            onResize={handleResize}
           />
         )}
       </main>

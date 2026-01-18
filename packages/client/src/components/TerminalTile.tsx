@@ -9,6 +9,7 @@ interface Props {
   status: 'running' | 'waiting' | 'completed';
   onData: (data: string) => void;
   onDelete: () => void;
+  onResize?: (cols: number, rows: number) => void;
 }
 
 export interface TerminalTileHandle {
@@ -17,7 +18,7 @@ export interface TerminalTileHandle {
 }
 
 export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
-  function TerminalTile({ sessionId, cwd, status, onData, onDelete }, ref) {
+  function TerminalTile({ sessionId, cwd, status, onData, onDelete, onResize }, ref) {
     const terminalRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -27,6 +28,8 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
     useImperativeHandle(ref, () => ({
       write: (data: string) => {
         termRef.current?.write(data);
+        // 自動スクロール
+        termRef.current?.scrollToBottom();
       },
       clear: () => {
         termRef.current?.clear();
@@ -41,6 +44,7 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
         fontSize: 13,
         fontFamily: 'Consolas, "Courier New", monospace',
         disableStdin: true, // 入力を無効化
+        scrollback: 5000, // スクロールバックバッファを増やす
         theme: {
           background: '#1e1e1e',
           foreground: '#d4d4d4',
@@ -76,23 +80,37 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
 
       termRef.current = term;
 
-      const handleResize = () => {
+      // リサイズ時にサーバーに通知
+      const notifyResize = () => {
         fitAddon.fit();
+        const { cols, rows } = term;
+        if (onResize && cols > 0 && rows > 0) {
+          onResize(cols, rows);
+        }
+      };
+
+      const handleResize = () => {
+        notifyResize();
       };
       window.addEventListener('resize', handleResize);
 
       // Use ResizeObserver for container size changes
       const resizeObserver = new ResizeObserver(() => {
-        fitAddon.fit();
+        notifyResize();
       });
       resizeObserver.observe(terminalRef.current);
+
+      // 初期サイズを通知
+      setTimeout(() => {
+        notifyResize();
+      }, 100);
 
       return () => {
         window.removeEventListener('resize', handleResize);
         resizeObserver.disconnect();
         term.dispose();
       };
-    }, [sessionId]);
+    }, [sessionId, onResize]);
 
     // Windows ConPTY win32-input-mode のEnterシーケンス
     // ESC [ Vk ; Sc ; Uc ; Kd ; Cs ; Rc _

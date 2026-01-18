@@ -8,6 +8,7 @@ interface Props {
   onDelete: (sessionId: string) => void;
   onSubscribe: (sessionId: string) => void;
   onUnsubscribe: (sessionId: string) => void;
+  onResize: (sessionId: string, cols: number, rows: number) => void;
 }
 
 export interface SessionGridHandle {
@@ -15,7 +16,7 @@ export interface SessionGridHandle {
 }
 
 export const SessionGrid = forwardRef<SessionGridHandle, Props>(
-  function SessionGrid({ sessions, onInput, onDelete, onSubscribe, onUnsubscribe }, ref) {
+  function SessionGrid({ sessions, onInput, onDelete, onSubscribe, onUnsubscribe, onResize }, ref) {
     const terminalRefs = useRef<Map<string, TerminalTileHandle>>(new Map());
     const subscribedIds = useRef<Set<string>>(new Set());
 
@@ -95,6 +96,7 @@ export const SessionGrid = forwardRef<SessionGridHandle, Props>(
             status={session.status}
             onData={(data) => onInput(session.id, data)}
             onDelete={() => onDelete(session.id)}
+            onResize={(cols, rows) => onResize(session.id, cols, rows)}
           />
         ))}
       </div>
