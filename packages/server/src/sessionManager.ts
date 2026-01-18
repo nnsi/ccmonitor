@@ -1,6 +1,7 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'crypto';
 import type { SessionHistory } from '@ccmonitor/shared';
+import { getDefaultShell, pathsEqual } from './platform.js';
 
 export type SessionStatus = 'running' | 'waiting' | 'completed';
 
@@ -34,7 +35,7 @@ class SessionManager {
    */
   createSession(cwd: string): Session {
     const id = randomUUID();
-    const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+    const shell = getDefaultShell();
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-color',
@@ -156,13 +157,11 @@ class SessionManager {
 
   /**
    * cwdでセッションを検索
-   * Windowsのパスはcase-insensitiveなので、小文字に正規化して比較
+   * プラットフォームに応じたパス比較を行う
    */
   findSessionByCwd(cwd: string): Session | undefined {
-    const normalizedCwd = cwd.toLowerCase().replace(/\//g, '\\');
     for (const session of this.sessions.values()) {
-      const normalizedSessionCwd = session.cwd.toLowerCase().replace(/\//g, '\\');
-      if (normalizedSessionCwd === normalizedCwd) {
+      if (pathsEqual(session.cwd, cwd)) {
         return session;
       }
     }

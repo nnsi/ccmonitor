@@ -5,6 +5,9 @@
   "description": "Claude Code parallel session monitor WebUI",
   "scripts": {
     "dev": "concurrently \"pnpm --filter @ccmonitor/server dev\" \"pnpm --filter @ccmonitor/client dev\"",
+    "notify:running": "node ./scripts/notify.js running",
+    "notify:waiting": "node ./scripts/notify.js waiting",
+    "notify:completed": "node ./scripts/notify.js completed",
     "build": "pnpm --filter @ccmonitor/shared build && pnpm --filter @ccmonitor/server build && pnpm --filter @ccmonitor/client build",
     "test": "vitest",
     "lint": "eslint packages --ext .ts,.tsx"

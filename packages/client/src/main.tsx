@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSessions, useCreateSession, useDeleteSession } from './api/sessions';
@@ -6,6 +6,7 @@ import { useWebSocket, WebSocketMessage } from './hooks/useWebSocket';
 import { SessionGrid, SessionGridHandle } from './components/SessionGrid';
 import { NewSessionModal } from './components/NewSessionModal';
 import { HistoryModal } from './components/HistoryModal';
+import { fetchPlatformInfo } from './lib/platform';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -21,6 +22,13 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const { data: sessions = [], refetch } = useSessions();
+
+  // アプリケーション起動時にプラットフォーム情報を取得
+  useEffect(() => {
+    fetchPlatformInfo().then((info) => {
+      console.log('[Platform] Server platform:', info.platform);
+    });
+  }, []);
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
 

@@ -6,6 +6,7 @@ import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { sessionManager, type SessionStatus } from './sessionManager.js';
 import { historyManager } from './historyManager.js';
+import { getPlatformInfo } from './platform.js';
 
 const app = new Hono();
 
@@ -144,6 +145,11 @@ app.delete('/api/history', async (c) => {
   return c.json({ success: true });
 });
 
+// プラットフォーム情報取得
+app.get('/api/platform', (c) => {
+  return c.json(getPlatformInfo());
+});
+
 // Claude Code hooks からの通知受信
 app.post('/api/notify', async (c) => {
   try {
@@ -152,7 +158,14 @@ app.post('/api/notify', async (c) => {
 
     const session = sessionManager.findSessionByCwd(cwd);
     if (session) {
-      const newStatus: SessionStatus = type === 'completed' ? 'completed' : 'waiting';
+      let newStatus: SessionStatus;
+      if (type === 'completed') {
+        newStatus = 'completed';
+      } else if (type === 'running') {
+        newStatus = 'running';
+      } else {
+        newStatus = 'waiting';
+      }
       sessionManager.updateStatus(session.id, newStatus);
 
       // 履歴のステータスを更新

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useImperativeHandle, forwardRef, useState, KeyboardEvent } from 'react';
+import { useEffect, useRef, useImperativeHandle, forwardRef, useState, KeyboardEvent, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { getPlatformInfo, InputSequences } from '../lib/platform';
 
 interface Props {
   sessionId: string;
@@ -24,6 +25,12 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
     const fitAddonRef = useRef<FitAddon | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const [inputValue, setInputValue] = useState('');
+
+    // プラットフォームに応じた入力シーケンスを取得
+    const inputSequences = useMemo(() => {
+      const platformInfo = getPlatformInfo();
+      return new InputSequences(platformInfo);
+    }, []);
 
     useImperativeHandle(ref, () => ({
       write: (data: string) => {
@@ -112,18 +119,15 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
       };
     }, [sessionId, onResize]);
 
-    // Windows ConPTY win32-input-mode のEnterシーケンス
-    // ESC [ Vk ; Sc ; Uc ; Kd ; Cs ; Rc _
-    // Vk=13(VK_RETURN), Sc=28, Uc=13(\r), Kd=1(keydown), Cs=0, Rc=1
-    const WIN32_ENTER_DOWN = '\x1b[13;28;13;1;0;1_';
-    const WIN32_ENTER_UP = '\x1b[13;28;13;0;0;1_';
+    // テキストとEnterを送信するヘルパー関数
+    const sendTextWithEnter = (text: string) => {
+      const sequences = inputSequences.getTextWithEnter(text);
+      sequences.forEach(seq => onData(seq));
+    };
 
     // 入力送信
     const handleSend = () => {
-      // テキストを送信後、win32-input-mode形式のEnterを送信
-      onData(inputValue);
-      onData(WIN32_ENTER_DOWN);
-      onData(WIN32_ENTER_UP);
+      sendTextWithEnter(inputValue);
       setInputValue('');
       inputRef.current?.focus();
     };
@@ -154,10 +158,23 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
       completed: 'Completed'
     }[status];
 
+    // タイル全体のスタイル（状態に応じて変更）
+    const tileStyles = {
+      running: 'border-gray-700 bg-gray-800',
+      waiting: 'border-yellow-500 bg-yellow-950/30 ring-2 ring-yellow-500/50',
+      completed: 'border-gray-600 bg-gray-900 opacity-60'
+    }[status];
+
+    const headerStyles = {
+      running: 'bg-gray-700',
+      waiting: 'bg-yellow-900/50',
+      completed: 'bg-gray-800'
+    }[status];
+
     return (
-      <div className="flex flex-col h-full bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
+      <div className={`flex flex-col h-full rounded-lg overflow-hidden border-2 transition-all duration-300 ${tileStyles}`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 bg-gray-700">
+        <div className={`flex items-center justify-between px-3 py-2 ${headerStyles}`}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span
               className={`w-2 h-2 rounded-full ${statusColor} flex-shrink-0`}
@@ -186,58 +203,69 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
           {/* 特殊キーボタン */}
           <div className="flex gap-1 mb-2 flex-wrap">
             <button
-              onClick={() => sendSpecialKey('\x1b')} // Escape
+              onClick={() => sendSpecialKey(InputSequences.ESCAPE)}
               className="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 rounded text-gray-200 transition-colors"
-              title="Send Escape key"
+              title="Escキーを送信"
             >
-              Esc
+              戻る
             </button>
             <button
-              onClick={() => sendSpecialKey('\x03')} // Ctrl+C
+              onClick={() => sendSpecialKey(InputSequences.CTRL_C)}
               className="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 rounded text-gray-200 transition-colors"
-              title="Send Ctrl+C (interrupt)"
+              title="処理を中断 (Ctrl+C)"
             >
-              Ctrl+C
+              中断
             </button>
             <button
-              onClick={() => sendSpecialKey('\x04')} // Ctrl+D
+              onClick={() => sendSpecialKey(InputSequences.CTRL_D)}
               className="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 rounded text-gray-200 transition-colors"
-              title="Send Ctrl+D (EOF)"
+              title="入力終了/EOF送信 (Ctrl+D)"
             >
-              Ctrl+D
+              終了
             </button>
             <button
-              onClick={() => sendSpecialKey('\t')} // Tab
+              onClick={() => sendSpecialKey(InputSequences.TAB)}
               className="px-2 py-1 text-xs bg-gray-600 hover:bg-gray-500 rounded text-gray-200 transition-colors"
-              title="Send Tab (autocomplete)"
+              title="自動補完 (Tab)"
             >
-              Tab
+              補完
             </button>
             <div className="border-l border-gray-600 mx-1" />
             <button
               onClick={() => {
-                onData('y');
-                onData(WIN32_ENTER_DOWN);
-                onData(WIN32_ENTER_UP);
+                sendTextWithEnter('y');
                 inputRef.current?.focus();
               }}
               className="px-2 py-1 text-xs bg-green-700 hover:bg-green-600 rounded text-gray-200 transition-colors"
-              title="Send 'y' + Enter"
+              title="'y' + Enterを送信"
             >
               Yes
             </button>
             <button
               onClick={() => {
-                onData('n');
-                onData(WIN32_ENTER_DOWN);
-                onData(WIN32_ENTER_UP);
+                sendTextWithEnter('n');
                 inputRef.current?.focus();
               }}
               className="px-2 py-1 text-xs bg-yellow-700 hover:bg-yellow-600 rounded text-gray-200 transition-colors"
-              title="Send 'n' + Enter"
+              title="'n' + Enterを送信"
             >
               No
             </button>
+            <div className="border-l border-gray-600 mx-1" />
+            {/* 選択肢ボタン (1-4) */}
+            {[1, 2, 3, 4].map((num) => (
+              <button
+                key={num}
+                onClick={() => {
+                  sendTextWithEnter(String(num));
+                  inputRef.current?.focus();
+                }}
+                className="px-2 py-1 text-xs bg-blue-700 hover:bg-blue-600 rounded text-gray-200 transition-colors min-w-[28px]"
+                title={`'${num}' + Enterを送信 (選択肢${num})`}
+              >
+                {num}
+              </button>
+            ))}
           </div>
 
           {/* テキスト入力 */}
