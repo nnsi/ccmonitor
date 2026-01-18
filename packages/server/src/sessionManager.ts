@@ -42,7 +42,10 @@ class SessionManager {
       cols: 80,
       rows: 30,
       cwd: cwd,
-      env: process.env as { [key: string]: string },
+      env: {
+        ...process.env,
+        CCMONITOR_SESSION_ID: id,
+      } as { [key: string]: string },
     });
 
     const session: Session = {
@@ -53,8 +56,8 @@ class SessionManager {
       pty: ptyProcess,
     };
 
-    // claude コマンドを自動実行
-    ptyProcess.write('claude\r');
+    // claude コマンドを自動実行（--dangerous-skip-permissions で権限確認をスキップ）
+    ptyProcess.write('claude --dangerous-skip-permissions\r');
 
     // 出力バッファを初期化
     this.outputBuffers.set(id, '');

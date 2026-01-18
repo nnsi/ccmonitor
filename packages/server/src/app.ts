@@ -116,10 +116,13 @@ export function createApp(deps: AppDependencies) {
   // Claude Code hooks からの通知受信
   app.post('/api/notify', async (c) => {
     try {
-      const body = await c.req.json<{ type: string; cwd: string }>();
-      const { type, cwd } = body;
+      const body = await c.req.json<{ type: string; cwd: string; sessionId?: string }>();
+      const { type, cwd, sessionId } = body;
 
-      const session = sessionManager.findSessionByCwd(cwd);
+      // sessionIdがあれば直接取得、なければcwdで検索（後方互換性）
+      const session = sessionId
+        ? sessionManager.getSession(sessionId)
+        : sessionManager.findSessionByCwd(cwd);
       if (session) {
         let newStatus: SessionStatus;
         if (type === 'completed') {
