@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { sessionManager, type SessionStatus } from './sessionManager.js';
+import { historyManager } from './historyManager.js';
 
 const app = new Hono();
 
@@ -53,7 +54,16 @@ function setupSessionCallbacks(sessionId: string): void {
     });
   });
 
-  sessionManager.onExit(sessionId, (exitCode) => {
+  sessionManager.onExit(sessionId, async (exitCode) => {
+    // 履歴を更新（セッション終了）
+    const session = sessionManager.getSession(sessionId);
+    if (session) {
+      await historyManager.endSession(
+        sessionId,
+        sessionManager.getOutputBuffer(sessionId)?.length || 0
+      );
+    }
+
     broadcastToClients({
       type: 'session:exit',
       sessionId,
@@ -82,6 +92,10 @@ app.post('/api/sessions', async (c) => {
 
     const session = sessionManager.createSession(body.cwd);
     setupSessionCallbacks(session.id);
+
+    // 履歴に保存
+    const sessionHistory = sessionManager.toSessionHistory(session);
+    await historyManager.saveSession(sessionHistory);
 
     const sessionInfo = sessionManager.toSessionInfo(session);
 
@@ -118,6 +132,18 @@ app.delete('/api/sessions/:id', (c) => {
   return c.json({ success: true });
 });
 
+// セッション履歴取得
+app.get('/api/history', (c) => {
+  const history = historyManager.getHistory();
+  return c.json({ history });
+});
+
+// 履歴クリア
+app.delete('/api/history', async (c) => {
+  await historyManager.clearHistory();
+  return c.json({ success: true });
+});
+
 // Claude Code hooks からの通知受信
 app.post('/api/notify', async (c) => {
   try {
@@ -128,6 +154,10 @@ app.post('/api/notify', async (c) => {
     if (session) {
       const newStatus: SessionStatus = type === 'completed' ? 'completed' : 'waiting';
       sessionManager.updateStatus(session.id, newStatus);
+
+      // 履歴のステータスを更新
+      const outputSize = sessionManager.getOutputBuffer(session.id)?.length || 0;
+      await historyManager.updateSessionStatus(session.id, newStatus, outputSize);
 
       broadcastToClients({
         type: 'notification',
@@ -145,127 +175,141 @@ app.post('/api/notify', async (c) => {
 
 // サーバー起動
 const port = 3000;
-const server = serve({
-  fetch: app.fetch,
-  port,
-});
 
-// WebSocketサーバー設定
-const wss = new WebSocketServer({ noServer: true });
+// 非同期初期化
+async function startServer() {
+  // 履歴を読み込む
+  await historyManager.loadHistory();
+  console.log('[Server] History loaded');
 
-wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
-  console.log('WebSocket client connected');
-  clients.add(ws);
+  const server = serve({
+    fetch: app.fetch,
+    port,
+  });
 
-  ws.on('message', (rawData) => {
-    try {
-      const message = JSON.parse(rawData.toString());
+  // WebSocketサーバー設定
+  const wss = new WebSocketServer({ noServer: true });
 
-      switch (message.type) {
-        case 'subscribe': {
-          // セッションにサブスクライブ
-          const { sessionId } = message;
-          if (sessionId) {
-            if (!sessionSubscriptions.has(sessionId)) {
-              sessionSubscriptions.set(sessionId, new Set());
+  wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
+    console.log('WebSocket client connected');
+    clients.add(ws);
+
+    ws.on('message', (rawData) => {
+      try {
+        const message = JSON.parse(rawData.toString());
+
+        switch (message.type) {
+          case 'subscribe': {
+            // セッションにサブスクライブ
+            const { sessionId } = message;
+            if (sessionId) {
+              if (!sessionSubscriptions.has(sessionId)) {
+                sessionSubscriptions.set(sessionId, new Set());
+              }
+              sessionSubscriptions.get(sessionId)!.add(ws);
+              console.log(`Client subscribed to session: ${sessionId}`);
+
+              // 既存のターミナル出力バッファを送信（再接続時の復元用）
+              const buffer = sessionManager.getOutputBuffer(sessionId);
+              if (buffer && buffer.length > 0) {
+                ws.send(JSON.stringify({
+                  type: 'session:data',
+                  sessionId,
+                  data: buffer,
+                }));
+                console.log(`Sent buffer (${buffer.length} bytes) to client for session: ${sessionId}`);
+              }
             }
-            sessionSubscriptions.get(sessionId)!.add(ws);
-            console.log(`Client subscribed to session: ${sessionId}`);
+            break;
+          }
 
-            // 既存のターミナル出力バッファを送信（再接続時の復元用）
-            const buffer = sessionManager.getOutputBuffer(sessionId);
-            if (buffer && buffer.length > 0) {
-              ws.send(JSON.stringify({
-                type: 'session:data',
-                sessionId,
-                data: buffer,
-              }));
-              console.log(`Sent buffer (${buffer.length} bytes) to client for session: ${sessionId}`);
+          case 'unsubscribe': {
+            // セッションからアンサブスクライブ
+            const { sessionId } = message;
+            if (sessionId && sessionSubscriptions.has(sessionId)) {
+              sessionSubscriptions.get(sessionId)!.delete(ws);
+              console.log(`Client unsubscribed from session: ${sessionId}`);
             }
+            break;
           }
-          break;
-        }
 
-        case 'unsubscribe': {
-          // セッションからアンサブスクライブ
-          const { sessionId } = message;
-          if (sessionId && sessionSubscriptions.has(sessionId)) {
-            sessionSubscriptions.get(sessionId)!.delete(ws);
-            console.log(`Client unsubscribed from session: ${sessionId}`);
-          }
-          break;
-        }
-
-        case 'input': {
-          // セッションにデータを書き込む
-          const { sessionId, data } = message;
-          if (sessionId && data) {
-            console.log('[DEBUG] input received:', JSON.stringify(data));
-            console.log('[DEBUG] input bytes:', Buffer.from(data).toString('hex'));
-            console.log('[DEBUG] input chars:', data.split('').map(c => c.charCodeAt(0)));
-            const success = sessionManager.write(sessionId, data);
-            if (!success) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Session not found',
-                sessionId,
-              }));
+          case 'input': {
+            // セッションにデータを書き込む
+            const { sessionId, data } = message;
+            if (sessionId && data) {
+              console.log('[DEBUG] input received:', JSON.stringify(data));
+              console.log('[DEBUG] input bytes:', Buffer.from(data).toString('hex'));
+              console.log('[DEBUG] input chars:', data.split('').map((c: string) => c.charCodeAt(0)));
+              const success = sessionManager.write(sessionId, data);
+              if (!success) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Session not found',
+                  sessionId,
+                }));
+              }
             }
+            break;
           }
-          break;
-        }
 
-        case 'resize': {
-          // セッションのターミナルサイズを変更
-          const { sessionId, cols, rows } = message;
-          if (sessionId && cols && rows) {
-            const success = sessionManager.resize(sessionId, cols, rows);
-            if (!success) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Session not found',
-                sessionId,
-              }));
+          case 'resize': {
+            // セッションのターミナルサイズを変更
+            const { sessionId, cols, rows } = message;
+            if (sessionId && cols && rows) {
+              const success = sessionManager.resize(sessionId, cols, rows);
+              if (!success) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Session not found',
+                  sessionId,
+                }));
+              }
             }
+            break;
           }
-          break;
-        }
 
-        default:
-          console.log('Unknown message type:', message.type);
+          default:
+            console.log('Unknown message type:', message.type);
+        }
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
       }
-    } catch (error) {
-      console.error('Failed to parse WebSocket message:', error);
+    });
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected');
+      clients.delete(ws);
+
+      // 全セッションからこのクライアントを削除
+      sessionSubscriptions.forEach((subscribers) => {
+        subscribers.delete(ws);
+      });
+    });
+
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+  });
+
+  // HTTPサーバーのアップグレードリクエスト処理
+  server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const url = new URL(request.url || '', `http://${request.headers.host}`);
+
+    if (url.pathname === '/ws') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
     }
   });
 
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
-    clients.delete(ws);
+  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`WebSocket endpoint: ws://localhost:${port}/ws`);
+}
 
-    // 全セッションからこのクライアントを削除
-    sessionSubscriptions.forEach((subscribers) => {
-      subscribers.delete(ws);
-    });
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
+// サーバー起動
+startServer().catch((error) => {
+  console.error('[Server] Failed to start:', error);
+  process.exit(1);
 });
-
-// HTTPサーバーのアップグレードリクエスト処理
-server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-  const url = new URL(request.url || '', `http://${request.headers.host}`);
-
-  if (url.pathname === '/ws') {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
-  } else {
-    socket.destroy();
-  }
-});
-
-console.log(`Server is running on http://localhost:${port}`);
-console.log(`WebSocket endpoint: ws://localhost:${port}/ws`);

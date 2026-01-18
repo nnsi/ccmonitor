@@ -1,5 +1,6 @@
 import * as pty from 'node-pty';
 import { randomUUID } from 'crypto';
+import type { SessionHistory } from '@ccmonitor/shared';
 
 export type SessionStatus = 'running' | 'waiting' | 'completed';
 
@@ -155,10 +156,13 @@ class SessionManager {
 
   /**
    * cwdでセッションを検索
+   * Windowsのパスはcase-insensitiveなので、小文字に正規化して比較
    */
   findSessionByCwd(cwd: string): Session | undefined {
+    const normalizedCwd = cwd.toLowerCase().replace(/\//g, '\\');
     for (const session of this.sessions.values()) {
-      if (session.cwd === cwd) {
+      const normalizedSessionCwd = session.cwd.toLowerCase().replace(/\//g, '\\');
+      if (normalizedSessionCwd === normalizedCwd) {
         return session;
       }
     }
@@ -184,6 +188,21 @@ class SessionManager {
       cwd: session.cwd,
       status: session.status,
       createdAt: session.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * SessionからSessionHistory（履歴保存用）に変換
+   */
+  toSessionHistory(session: Session, endedAt?: string): SessionHistory {
+    const outputBuffer = this.outputBuffers.get(session.id) || '';
+    return {
+      id: session.id,
+      cwd: session.cwd,
+      status: session.status,
+      createdAt: session.createdAt.toISOString(),
+      endedAt,
+      outputSize: outputBuffer.length,
     };
   }
 }

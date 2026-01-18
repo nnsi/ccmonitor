@@ -5,6 +5,7 @@ import { useSessions, useCreateSession, useDeleteSession } from './api/sessions'
 import { useWebSocket, WebSocketMessage } from './hooks/useWebSocket';
 import { SessionGrid, SessionGridHandle } from './components/SessionGrid';
 import { NewSessionModal } from './components/NewSessionModal';
+import { HistoryModal } from './components/HistoryModal';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -18,6 +19,7 @@ const queryClient = new QueryClient({
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const { data: sessions = [], refetch } = useSessions();
   const createSession = useCreateSession();
   const deleteSession = useDeleteSession();
@@ -76,16 +78,27 @@ function App() {
             {sessions.length} / 6 sessions
           </span>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          disabled={!canCreateMore}
-          className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-          </svg>
-          New Session
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsHistoryModalOpen(true)}
+            className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600 transition-colors flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+            </svg>
+            History
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            disabled={!canCreateMore}
+            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+            New Session
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 p-4 overflow-hidden">
@@ -114,6 +127,11 @@ function App() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onCreate={handleCreate}
+      />
+
+      <HistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
       />
     </div>
   );

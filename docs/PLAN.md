@@ -131,17 +131,27 @@ CWDを含めて送信し、サーバー側でセッションを特定する。
 - [x] セッション削除UI
 - [x] WebSocket接続管理
 
-### Phase 2: 拡張機能
+### Phase 2: 拡張機能 ✅
+
+- [x] セッション状態表示（実行中/待機中/完了）
+  - hooks通知受信時に状態を更新
+  - UIにステータスバッジを表示（色分け対応）
+- [x] セッション履歴保存（JSON）
+  - historyManager.ts実装
+  - GET /api/history, DELETE /api/history エンドポイント
+- [x] ログ閲覧機能
+  - HistoryModal.tsx実装
+  - 履歴一覧表示、クリア機能
+- [x] セッション再接続（ブラウザリロード対応）
+  - 出力バッファ保持（最大50KB）
+  - WebSocket再接続時にバッファを送信
+- [x] パス比較のcase-insensitive化（Windows対応）
+
+### Phase 3: 通知・デスクトップアプリ化（検討中）
 
 - [ ] ブラウザ通知機能（PWA対応）
   - Web Notification API権限要求
   - hooks通知受信 → ブラウザ通知表示
-  - セッション状態表示（実行中/待機中/完了）
-- [ ] セッション履歴保存（SQLite or JSON）
-- [ ] ログ閲覧機能
-- [ ] セッション再接続（ブラウザリロード対応）
-
-### Phase 3: デスクトップアプリ化（検討中）
 
 Web版完成後に検討。候補：
 - **Electron**: 移行コスト低、node-ptyがそのまま使える

@@ -32,3 +32,6 @@ coverage/
 
 nul
 .playwright-mcp/
+
+# Session data
+data/

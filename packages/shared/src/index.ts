@@ -109,3 +109,21 @@ export interface ErrorMessage {
   type: 'error';
   message: string;
 }
+
+// ============================================
+// Session History Types
+// ============================================
+
+export interface SessionHistory {
+  id: string;
+  cwd: string;
+  status: SessionStatus;
+  createdAt: string;
+  endedAt?: string;
+  outputSize: number; // Buffer size in bytes
+}
+
+// GET /api/history
+export interface GetHistoryResponse {
+  history: SessionHistory[];
+}
