@@ -1,5 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 
+const HISTORY_KEY = 'ccmonitor:cwd-history';
+const MAX_HISTORY = 10;
+
+function getHistory(): string[] {
+  try {
+    const data = localStorage.getItem(HISTORY_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addToHistory(cwd: string): void {
+  const history = getHistory().filter((h) => h !== cwd);
+  history.unshift(cwd);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -8,15 +26,35 @@ interface Props {
 
 export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
   const [cwd, setCwd] = useState('');
+  const [history, setHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
 
-  // Focus input when modal opens
+  // Load history and set last used directory when modal opens
   useEffect(() => {
     if (isOpen) {
-      setCwd('');
-      setTimeout(() => inputRef.current?.focus(), 0);
+      const hist = getHistory();
+      setHistory(hist);
+      setCwd(hist[0] || '');
+      setShowHistory(false);
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 0);
     }
   }, [isOpen]);
+
+  // Close history dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setShowHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Close on Escape key
   useEffect(() => {
@@ -35,10 +73,17 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (cwd.trim()) {
+      addToHistory(cwd.trim());
       onCreate(cwd.trim());
       setCwd('');
       onClose();
     }
+  };
+
+  const handleSelectHistory = (dir: string) => {
+    setCwd(dir);
+    setShowHistory(false);
+    inputRef.current?.focus();
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
@@ -69,14 +114,43 @@ export function NewSessionModal({ isOpen, onClose, onCreate }: Props) {
           <label className="block mb-2 text-sm text-gray-400">
             Working Directory
           </label>
-          <input
-            ref={inputRef}
-            type="text"
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="C:\path\to\project"
-            className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-white placeholder-gray-500"
-          />
+          <div className="relative" ref={historyRef}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              onFocus={() => history.length > 0 && setShowHistory(true)}
+              placeholder="C:\path\to\project"
+              className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-white placeholder-gray-500"
+            />
+            {history.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
+            {showHistory && history.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-48 overflow-y-auto">
+                {history.map((dir, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleSelectHistory(dir)}
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-600 truncate"
+                    title={dir}
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <p className="mt-2 text-xs text-gray-500">
             Enter the absolute path to the project directory where Claude Code will run.
           </p>
