@@ -1,8 +1,6 @@
-import { useEffect, useRef, useImperativeHandle, forwardRef, useState, KeyboardEvent, useMemo } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
+import { useImperativeHandle, forwardRef, useState, KeyboardEvent, useMemo, useRef } from 'react';
 import { getPlatformInfo, InputSequences } from '../lib/platform';
+import { useTerminal } from '../hooks/useTerminal';
 
 interface Props {
   sessionId: string;
@@ -19,12 +17,12 @@ export interface TerminalTileHandle {
 }
 
 export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
-  function TerminalTile({ sessionId, cwd, status, onData, onDelete, onResize }, ref) {
-    const terminalRef = useRef<HTMLDivElement>(null);
-    const termRef = useRef<Terminal | null>(null);
-    const fitAddonRef = useRef<FitAddon | null>(null);
+  function TerminalTile({ cwd, status, onData, onDelete, onResize }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [inputValue, setInputValue] = useState('');
+
+    // xterm.js関連のロジックはuseTerminalフックに分離
+    const { terminalRef, write, clear } = useTerminal({ onResize });
 
     // プラットフォームに応じた入力シーケンスを取得
     const inputSequences = useMemo(() => {
@@ -33,91 +31,9 @@ export const TerminalTile = forwardRef<TerminalTileHandle, Props>(
     }, []);
 
     useImperativeHandle(ref, () => ({
-      write: (data: string) => {
-        termRef.current?.write(data);
-        // 自動スクロール
-        termRef.current?.scrollToBottom();
-      },
-      clear: () => {
-        termRef.current?.clear();
-      }
-    }), []);
-
-    useEffect(() => {
-      if (!terminalRef.current) return;
-
-      const term = new Terminal({
-        cursorBlink: false, // 出力専用なのでカーソル不要
-        fontSize: 13,
-        fontFamily: 'Consolas, "Courier New", monospace',
-        disableStdin: true, // 入力を無効化
-        scrollback: 5000, // スクロールバックバッファを増やす
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#1e1e1e', // カーソルを背景色と同じに
-          cursorAccent: '#1e1e1e',
-          selectionBackground: '#264f78',
-          black: '#1e1e1e',
-          red: '#f44747',
-          green: '#6a9955',
-          yellow: '#dcdcaa',
-          blue: '#569cd6',
-          magenta: '#c586c0',
-          cyan: '#4ec9b0',
-          white: '#d4d4d4',
-          brightBlack: '#808080',
-          brightRed: '#f44747',
-          brightGreen: '#6a9955',
-          brightYellow: '#dcdcaa',
-          brightBlue: '#569cd6',
-          brightMagenta: '#c586c0',
-          brightCyan: '#4ec9b0',
-          brightWhite: '#ffffff'
-        }
-      });
-
-      const fitAddon = new FitAddon();
-      fitAddonRef.current = fitAddon;
-      term.loadAddon(fitAddon);
-      term.open(terminalRef.current);
-
-      // Initial fit with a small delay to ensure container is sized
-      setTimeout(() => fitAddon.fit(), 0);
-
-      termRef.current = term;
-
-      // リサイズ時にサーバーに通知
-      const notifyResize = () => {
-        fitAddon.fit();
-        const { cols, rows } = term;
-        if (onResize && cols > 0 && rows > 0) {
-          onResize(cols, rows);
-        }
-      };
-
-      const handleResize = () => {
-        notifyResize();
-      };
-      window.addEventListener('resize', handleResize);
-
-      // Use ResizeObserver for container size changes
-      const resizeObserver = new ResizeObserver(() => {
-        notifyResize();
-      });
-      resizeObserver.observe(terminalRef.current);
-
-      // 初期サイズを通知
-      setTimeout(() => {
-        notifyResize();
-      }, 100);
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        resizeObserver.disconnect();
-        term.dispose();
-      };
-    }, [sessionId, onResize]);
+      write,
+      clear,
+    }), [write, clear]);
 
     // テキストとEnterを送信するヘルパー関数
     const sendTextWithEnter = (text: string) => {

@@ -1,21 +1,11 @@
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import { sessionManager, type SessionStatus } from './sessionManager.js';
+import { sessionManager } from './sessionManager.js';
 import { historyManager } from './historyManager.js';
 import { getPlatformInfo } from './platform.js';
-
-const app = new Hono();
-
-// CORS設定
-app.use('*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type'],
-}));
+import { createApp } from './app.js';
 
 // WebSocketクライアント管理
 const clients = new Set<WebSocket>();
@@ -73,121 +63,32 @@ function setupSessionCallbacks(sessionId: string): void {
   });
 }
 
-// REST API
-
-// セッション一覧取得
-app.get('/api/sessions', (c) => {
-  const sessions = sessionManager.getAllSessions().map((s) =>
-    sessionManager.toSessionInfo(s)
-  );
-  return c.json({ sessions });
+// Honoアプリを作成
+const app = createApp({
+  sessionManager,
+  historyManager,
+  getPlatformInfo,
+  broadcastToClients,
 });
 
-// セッション作成
-app.post('/api/sessions', async (c) => {
-  try {
-    const body = await c.req.json<{ cwd: string }>();
-    if (!body.cwd) {
-      return c.json({ error: 'cwd is required' }, 400);
-    }
+// セッション作成後にコールバックを設定するためのフック
+// Note: createAppの後でセッション作成をフックする
+const originalCreateSession = sessionManager.createSession.bind(sessionManager);
+sessionManager.createSession = (cwd: string) => {
+  const session = originalCreateSession(cwd);
+  setupSessionCallbacks(session.id);
+  return session;
+};
 
-    const session = sessionManager.createSession(body.cwd);
-    setupSessionCallbacks(session.id);
-
-    // 履歴に保存
-    const sessionHistory = sessionManager.toSessionHistory(session);
-    await historyManager.saveSession(sessionHistory);
-
-    const sessionInfo = sessionManager.toSessionInfo(session);
-
-    // WebSocketクライアントにセッション作成を通知
-    broadcastToClients({
-      type: 'session:created',
-      session: sessionInfo,
-    });
-
-    return c.json({ session: sessionInfo }, 201);
-  } catch (error) {
-    return c.json({ error: 'Invalid request body' }, 400);
-  }
-});
-
-// セッション削除
-app.delete('/api/sessions/:id', (c) => {
-  const id = c.req.param('id');
-  const deleted = sessionManager.deleteSession(id);
-
-  if (!deleted) {
-    return c.json({ error: 'Session not found' }, 404);
-  }
-
-  // サブスクリプションをクリーンアップ
+// サブスクリプションのクリーンアップをフック
+const originalDeleteSession = sessionManager.deleteSession.bind(sessionManager);
+sessionManager.deleteSession = (id: string) => {
   sessionSubscriptions.delete(id);
-
-  // WebSocketクライアントにセッション削除を通知
-  broadcastToClients({
-    type: 'session:deleted',
-    sessionId: id,
-  });
-
-  return c.json({ success: true });
-});
-
-// セッション履歴取得
-app.get('/api/history', (c) => {
-  const history = historyManager.getHistory();
-  return c.json({ history });
-});
-
-// 履歴クリア
-app.delete('/api/history', async (c) => {
-  await historyManager.clearHistory();
-  return c.json({ success: true });
-});
-
-// プラットフォーム情報取得
-app.get('/api/platform', (c) => {
-  return c.json(getPlatformInfo());
-});
-
-// Claude Code hooks からの通知受信
-app.post('/api/notify', async (c) => {
-  try {
-    const body = await c.req.json<{ type: string; cwd: string }>();
-    const { type, cwd } = body;
-
-    const session = sessionManager.findSessionByCwd(cwd);
-    if (session) {
-      let newStatus: SessionStatus;
-      if (type === 'completed') {
-        newStatus = 'completed';
-      } else if (type === 'running') {
-        newStatus = 'running';
-      } else {
-        newStatus = 'waiting';
-      }
-      sessionManager.updateStatus(session.id, newStatus);
-
-      // 履歴のステータスを更新
-      const outputSize = sessionManager.getOutputBuffer(session.id)?.length || 0;
-      await historyManager.updateSessionStatus(session.id, newStatus, outputSize);
-
-      broadcastToClients({
-        type: 'notification',
-        sessionId: session.id,
-        notifyType: type,
-        status: newStatus,
-      });
-    }
-
-    return c.json({ success: true });
-  } catch (error) {
-    return c.json({ error: 'Invalid request body' }, 400);
-  }
-});
+  return originalDeleteSession(id);
+};
 
 // サーバー起動
-const port = 3000;
+const port = 1470;
 
 // 非同期初期化
 async function startServer() {
@@ -250,9 +151,6 @@ async function startServer() {
             // セッションにデータを書き込む
             const { sessionId, data } = message;
             if (sessionId && data) {
-              console.log('[DEBUG] input received:', JSON.stringify(data));
-              console.log('[DEBUG] input bytes:', Buffer.from(data).toString('hex'));
-              console.log('[DEBUG] input chars:', data.split('').map((c: string) => c.charCodeAt(0)));
               const success = sessionManager.write(sessionId, data);
               if (!success) {
                 ws.send(JSON.stringify({

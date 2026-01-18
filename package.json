@@ -9,7 +9,9 @@
     "notify:waiting": "node ./scripts/notify.js waiting",
     "notify:completed": "node ./scripts/notify.js completed",
     "build": "pnpm --filter @ccmonitor/shared build && pnpm --filter @ccmonitor/server build && pnpm --filter @ccmonitor/client build",
-    "test": "vitest",
+    "test": "pnpm --filter @ccmonitor/server test && pnpm --filter @ccmonitor/client test",
+    "test:server": "pnpm --filter @ccmonitor/server test",
+    "test:client": "pnpm --filter @ccmonitor/client test",
     "lint": "eslint packages --ext .ts,.tsx"
   },
   "devDependencies": {
