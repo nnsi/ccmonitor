@@ -1,0 +1,23 @@
+{
+  "name": "ccmonitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code parallel session monitor WebUI",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @ccmonitor/server dev\" \"pnpm --filter @ccmonitor/client dev\"",
+    "build": "pnpm --filter @ccmonitor/shared build && pnpm --filter @ccmonitor/server build && pnpm --filter @ccmonitor/client build",
+    "test": "vitest",
+    "lint": "eslint packages --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "node-pty"]
+  }
+}
